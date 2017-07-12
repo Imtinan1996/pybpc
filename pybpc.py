@@ -9,6 +9,7 @@ import os
 import pandas as pd
 import pyautogui
 from screenshot import GrabScreen
+from screenshot import ScreenGrabber
 from imageregressor import irmodel as Regressor
 from getinputs import key_check as KeyGrab
 from inputkeys import Accelerate, Decelerate, Left , Right , PressKey, ReleaseKey
@@ -21,21 +22,33 @@ WIDTH=80
 HEIGHT=60
 LAMBDA=1e-3
 EPOCHS=10
-TRAIN_PERCENTAGE=0.7
+TIME_DELAY=0.2
+TURN_THRESHOLD=0.7
 MODEL_NAME='py-burnout-self-driving-car.model'
 
 def move_forward():
     PressKey(Accelerate)
     ReleaseKey(Right)
     ReleaseKey(Left)
+    #time.sleep(TIME_DELAY)
+    #ReleaseKey(Accelerate)
 
 def move_left():
-    ReleaseKey(Right)
     PressKey(Left)
+    PressKey(Accelerate)
+    ReleaseKey(Right)
+    #time.sleep(TIME_DELAY)
+    #ReleaseKey(Left)
+    #ReleaseKey(Accelerate)
+    
     
 def move_right():
-    ReleaseKey(Left)
     PressKey(Right)
+    PressKey(Accelerate)
+    ReleaseKey(Left)
+    #time.sleep(TIME_DELAY)
+    #ReleaseKey(Right)
+    #ReleaseKey(Accelerate)
     
     
     
@@ -97,22 +110,25 @@ def gatherTrainingData(training_file="trainingData.npy"):
         
     while(True):
 
-        screen = np.array(ImageGrab.grab(bbox=(0,50,800,650)))
+        screen = ScreenGrabber()
         screen = cv2.cvtColor(screen,cv2.COLOR_BGR2GRAY)
+        #cv2.imshow('Image',screen)
         screen = cv2.resize(screen,(80,60))
-        cv2.imshow('Image',screen)
+        #cv2.imshow('Image',screen)
         keys=KeyGrab()
         if cv2.waitKey(25) & 0xFF == ord('q') or ' ' in keys:
-            print("Stop command issued")
+            print("Stop command issued, saving data to file")
             cv2.destroyAllWindows()
             np.save(training_file,training_data)
+            print("Data saved to file, creating balanced training data")
+            BalanceTrainingData()
             break
         outputs=maskOutput(keys)
         if keys:
             print("Keys Pressed",keys,outputs)
         training_data.append([screen,outputs])
 
-def BalanceTrainngData(training_file="trainingData.npy"):
+def BalanceTrainingData(training_file="trainingData.npy"):
     
     training_data=np.load(training_file)
     print("Length of data:",len(training_data))
@@ -143,15 +159,15 @@ def BalanceTrainngData(training_file="trainingData.npy"):
         
     shuffle(balanced_data)
     
-    print(len(balanced_data))
+    print("Length of balanced data",len(balanced_data))
     
     np.save(balancedDataFilename,balanced_data)
 
 def trainModel():
     model=Regressor(WIDTH,HEIGHT,LAMBDA)
     training_data=np.load(balancedDataFilename)
-    train=training_data[:-500]
-    test=training_data[-500:]
+    train=training_data[:-1500]
+    test=training_data[-1500:]
     
     X=np.array([i[0] for i in train]).reshape(-1,WIDTH,HEIGHT,1)
     Y=[i[1] for i in train]
@@ -177,14 +193,18 @@ def testModel():
     model.load(MODEL_NAME)
     
     speedController=0
+    slowController=0
     Accelerating=False
+    Decelerating=False
     
     while(True):
 
-        screen = np.array(ImageGrab.grab(bbox=(0,50,800,650)))
+        #screen = np.array(ImageGrab.grab(bbox=(0,50,800,650)))
+        screen = ScreenGrabber()
         screen = cv2.cvtColor(screen,cv2.COLOR_BGR2GRAY)
+        #cv2.imshow('Image',screen)
         screen = cv2.resize(screen,(80,60))
-        cv2.imshow('Image',screen)
+        #cv2.imshow('Image',screen)
         keys=KeyGrab()
         if cv2.waitKey(25) & 0xFF == ord('q') or ' ' in keys:
             print("Testing Stopped")
@@ -200,7 +220,7 @@ def testModel():
         
         print(press,prediction)
         
-        if Accelerating is False and speedController%2==0:
+        if Accelerating is False and speedController%5==0:
             print("Accelerating car")
             ReleaseKey(Decelerate)
             PressKey(Accelerate)
@@ -208,17 +228,28 @@ def testModel():
         
         speedController+=1
         
-        if Accelerating is True and speedController%2==0:
+        if Accelerating is True and speedController%5==0:
             print("Slowing down")
             ReleaseKey(Accelerate)
             PressKey(Decelerate)
             Accelerating=False
         
-        #if press == [1,0,0]:
-        #    move_forward()
-        if press == [0,1,0]:
+        #if speedController%10==0:
+        #    PressKey(Decelerate)
+        #    Decelerating=True
+        
+        #if Decelerating is True:
+        #    if slowController%5==0:
+        #        ReleaseKey(Decelerate)
+        #        Decelerating=False
+        #    slowController+=1
+            
+        
+        if press == [1,0,0]:
+            move_forward()
+        if press == [0,1,0]:# and prediction[1]>TURN_THRESHOLD:
             move_left()
-        if press == [0,0,1]:
+        if press == [0,0,1]:# and prediction[2]>TURN_THRESHOLD:
             move_right()
         
        
